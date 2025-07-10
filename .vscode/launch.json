@@ -1,0 +1,20 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug a2ltool",
+            "cwd": "${workspaceRoot}/target/debug",
+            "program": "${workspaceRoot}/target/debug/a2ltool",
+            "args": [
+                "./appMeaSigs.a2l",
+                "--elffile",
+                "./ifc2p_gwm_common.elf",
+                "--update",
+                "--output",
+                "./appMeaSigs_arm_output.a2l"
+            ]
+        }
+    ]
+}
