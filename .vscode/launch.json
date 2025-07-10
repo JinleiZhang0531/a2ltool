@@ -8,13 +8,13 @@
             "cwd": "${workspaceRoot}/target/debug",
             "program": "${workspaceRoot}/target/debug/a2ltool",
             "args": [
-                "./appMeaSigs.a2l",
+                "./hello_fsm_v4.a2l",
                 "--elffile",
-                "./ifc2p_gwm_common.elf",
+                "./hello_fsm_v4.elf",
                 "--update",
                 "--output",
-                "./appMeaSigs_arm_output.a2l"
-            ]
+                "./hello_fsm_v4_output.a2l"
+            ],
         }
     ]
 }
