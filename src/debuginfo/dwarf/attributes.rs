@@ -1,3 +1,5 @@
+use crate::symbol;
+
 use super::{DebugDataReader, UnitList};
 use gimli::{DebugAddrBase, DebuggingInformationEntry, EndianSlice, RunTimeEndian, UnitHeader};
 
@@ -19,6 +21,55 @@ pub(crate) fn get_name_attribute(
     unit_header: &gimli::UnitHeader<EndianSlice<RunTimeEndian>>,
 ) -> Result<String, String> {
     let name_attr = get_attr_value(entry, gimli::constants::DW_AT_name)
+        .ok_or_else(|| "failed to get name attribute".to_string())?;
+    match name_attr {
+        gimli::AttributeValue::String(slice) => {
+            if let Ok(utf8string) = slice.to_string() {
+                // could not demangle, but successfully converted the slice to utf8
+                return Ok(utf8string.to_owned());
+            }
+            Err(format!("could not decode {slice:#?} as a utf-8 string"))
+        }
+        gimli::AttributeValue::DebugStrRef(str_offset) => {
+            match dwarf.debug_str.get_str(str_offset) {
+                Ok(slice) => {
+                    if let Ok(utf8string) = slice.to_string() {
+                        // could not demangle, but successfully converted the slice to utf8
+                        return Ok(utf8string.to_owned());
+                    }
+                    Err(format!("could not decode {slice:#?} as a utf-8 string"))
+                }
+                Err(err) => Err(err.to_string()),
+            }
+        }
+        gimli::AttributeValue::DebugStrOffsetsIndex(index) => {
+            let unit = dwarf.unit(*unit_header).unwrap();
+            let offset = dwarf
+                .debug_str_offsets
+                .get_str_offset(unit.encoding().format, unit.str_offsets_base, index)
+                .unwrap();
+            match dwarf.debug_str.get_str(offset) {
+                Ok(slice) => {
+                    if let Ok(utf8string) = slice.to_string() {
+                        // could not demangle, but successfully converted the slice to utf8
+                        return Ok(utf8string.to_owned());
+                    }
+                    Err(format!("could not decode {slice:#?} as a utf-8 string"))
+                }
+                Err(err) => Err(err.to_string()),
+            }
+        }
+        _ => Err(format!("invalid name attribute type {name_attr:#?}")),
+    }
+}
+
+// get a name as a String from a DW_AT_linkage_name attribute
+pub(crate) fn get_linkage_name_attribute(
+    entry: &DebuggingInformationEntry<SliceType, usize>,
+    dwarf: &gimli::Dwarf<EndianSlice<RunTimeEndian>>,
+    unit_header: &gimli::UnitHeader<EndianSlice<RunTimeEndian>>,
+) -> Result<String, String> {
+    let name_attr = get_attr_value(entry, gimli::constants::DW_AT_linkage_name)
         .ok_or_else(|| "failed to get name attribute".to_string())?;
     match name_attr {
         gimli::AttributeValue::String(slice) => {
@@ -93,11 +144,29 @@ pub(crate) fn get_location_attribute(
     entry: &DebuggingInformationEntry<SliceType, usize>,
     encoding: gimli::Encoding,
     current_unit: usize,
+    symbols: &Vec<(String, u64)>,
 ) -> Option<u64> {
     let loc_attr = get_attr_value(entry, gimli::constants::DW_AT_location)?;
     if let gimli::AttributeValue::Exprloc(expression) = loc_attr {
         evaluate_exprloc(debug_data_reader, expression, encoding, current_unit)
     } else {
+        // Try to find the variable's address in the symbol table by its name
+        // Try to resolve by DW_AT_name or DW_AT_linkage_name
+        for get_name in [
+            |e, d, u| get_name_attribute(e, d, u),
+            |e, d, u| get_linkage_name_attribute(e, d, u),
+        ] {
+            if let Ok(name) = get_name(
+                entry,
+                &debug_data_reader.dwarf,
+                &debug_data_reader.units[current_unit].0,
+            ) {
+                if let Some((_, sym_addr)) = symbols.iter().find(|(sym_name, _)| sym_name == &name)
+                {
+                    return Some(*sym_addr);
+                }
+            }
+        }
         None
     }
 }

@@ -2,23 +2,66 @@ use crate::debuginfo::{DbgDataType, DebugData, TypeInfo, VarInfo};
 use gimli::{Abbreviations, DebuggingInformationEntry, Dwarf, UnitHeader};
 use gimli::{EndianSlice, RunTimeEndian};
 use indexmap::IndexMap;
+use object::ObjectSymbol;
 use object::read::ObjectSection;
 use object::{Endianness, Object};
 use std::ffi::OsStr;
 use std::ops::Index;
 use std::{collections::HashMap, fs::File};
-
 type SliceType<'a> = EndianSlice<'a, RunTimeEndian>;
 
 mod attributes;
 use attributes::{
-    get_abstract_origin_attribute, get_location_attribute, get_name_attribute,
-    get_specification_attribute, get_typeref_attribute,
+    get_abstract_origin_attribute, get_declaration_attribute, get_linkage_name_attribute,
+    get_location_attribute, get_name_attribute, get_specification_attribute, get_typeref_attribute,
 };
 mod typereader;
 
 pub(crate) struct UnitList<'a> {
     list: Vec<(UnitHeader<SliceType<'a>>, gimli::Abbreviations)>,
+}
+
+pub struct ClassInfo {
+    name: String,
+    linkage_name: String,
+    namespace: String,
+}
+
+impl ClassInfo {
+    // Constructor (可选)
+    pub fn new(name: String, linkage_name: String, namespace: String) -> Self {
+        ClassInfo {
+            name,
+            linkage_name,
+            namespace,
+        }
+    }
+
+    // Getter 方法
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn linkage_name(&self) -> &str {
+        &self.linkage_name
+    }
+
+    pub fn namespace(&self) -> &str {
+        &self.namespace
+    }
+
+    // Setter 方法
+    pub fn set_name(&mut self, name: String) {
+        self.name = name;
+    }
+
+    pub fn set_linkage_name(&mut self, linkage_name: String) {
+        self.linkage_name = linkage_name;
+    }
+
+    pub fn set_namespace(&mut self, namespace: String) {
+        self.namespace = namespace;
+    }
 }
 
 struct DebugDataReader<'elffile> {
@@ -28,13 +71,15 @@ struct DebugDataReader<'elffile> {
     unit_names: Vec<Option<String>>,
     endian: Endianness,
     sections: HashMap<String, (u64, u64)>,
+    class_names: HashMap<usize, ClassInfo>,
+    symbol_table: Vec<(String, u64)>,
 }
 
 // load the debug info from an elf file
 pub(crate) fn load_dwarf(filename: &OsStr, verbose: bool) -> Result<DebugData, String> {
     let filedata = load_filedata(filename)?;
     let elffile = load_elf_file(&filename.to_string_lossy(), &filedata)?;
-
+    // check if the elf file is including the required debug info section
     if !elffile
         .sections()
         .any(|section| section.name() == Ok(".debug_info"))
@@ -44,6 +89,8 @@ pub(crate) fn load_dwarf(filename: &OsStr, verbose: bool) -> Result<DebugData, S
             filename.to_string_lossy()
         ));
     }
+
+    let symbol_table = get_symbol_table(&elffile);
 
     let dwarf = load_dwarf_sections(&elffile)?;
 
@@ -63,6 +110,8 @@ pub(crate) fn load_dwarf(filename: &OsStr, verbose: bool) -> Result<DebugData, S
         unit_names: Vec::new(),
         endian: elffile.endianness(),
         sections,
+        class_names: HashMap::new(),
+        symbol_table,
     };
 
     Ok(dbg_reader.read_debug_info_entries())
@@ -123,6 +172,25 @@ fn load_dwarf_sections<'data>(
     // Dwarf::load takes two closures / functions and uses them to load all the required debug sections
     let loader = |section: gimli::SectionId| get_file_section_reader(elffile, section.name());
     gimli::Dwarf::load(loader)
+}
+/// 获取 ELF 文件的符号表信息（全局符号名和地址）
+/// 返回 Vec<(String, u64)>，每个元素为(符号名, 地址)
+fn get_symbol_table(elffile: &object::read::File) -> Vec<(String, u64)> {
+    let mut symbols = Vec::new();
+    for sym in elffile.symbols() {
+        // 只保留全局、已定义、数据符号且有名字和地址
+        if sym.is_global()
+            && sym.is_definition()
+            && sym.kind() == object::SymbolKind::Data
+            && sym.address() != 0
+        {
+            if let Ok(name) = sym.name() {
+                symbols.push((name.to_string(), sym.address()));
+                println!("Symbol: {}, Address: 0x{:x}", name, sym.address());
+            }
+        }
+    }
+    symbols
 }
 
 // verify that the dwarf data is valid
@@ -221,12 +289,26 @@ impl DebugDataReader<'_> {
                     || tag == gimli::constants::DW_TAG_subprogram
                 {
                     context.push((tag, get_name_attribute(entry, &self.dwarf, unit).ok()));
+                    // 打印最后一个元素的值
+                    if let Some((tag, opt_string)) = context.last() {
+                        match opt_string {
+                            Some(s) => println!("Last DwTag: {:?}, String: {}", tag, s),
+                            None => println!("Last DwTag: {:?}, No String", tag),
+                        }
+                    } else {
+                        println!("The context is empty.");
+                    }
                 } else {
                     context.push((tag, None));
                 }
                 debug_assert_eq!(depth as usize, context.len());
 
                 if entry.tag() == gimli::constants::DW_TAG_variable {
+                    let variable_name = get_name_attribute(entry, &self.dwarf, unit)
+                        .unwrap_or_else(|_| "unknown_variable".to_string());
+                    if variable_name == "g_fsmRunnable" {
+                        println!("Found variable: {}", variable_name);
+                    }
                     match self.get_global_variable(entry, unit, abbreviations) {
                         Ok(Some((name, typeref, address))) => {
                             let (function, namespaces) = get_varinfo_from_context(&context);
@@ -253,6 +335,40 @@ impl DebugDataReader<'_> {
                         }
                     }
                 }
+
+                // if the entry is a class, store its name and namespace
+                if entry.tag() == gimli::constants::DW_TAG_class_type {
+                    // if the class has a linkage name, use it, otherwise use the class name
+                    let is_declaration = get_declaration_attribute(entry).unwrap_or(false);
+                    if !is_declaration {
+                        let class_name = get_name_attribute(entry, &self.dwarf, unit)
+                            .unwrap_or_else(|_| "unknown_class".to_string());
+                        let linkage_name = String::new();
+                        // 拼接所有 namespace 名称，使用 "::" 作为分隔符
+                        let namespace = context
+                            .iter()
+                            .filter_map(|(tag, name)| {
+                                if *tag == gimli::constants::DW_TAG_namespace {
+                                    name.as_ref()
+                                } else {
+                                    None
+                                }
+                            })
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join("::");
+                        // insert the class info into the class_names map
+                        let offset = entry
+                            .offset()
+                            .to_debug_info_offset(unit)
+                            .unwrap_or(gimli::DebugInfoOffset(0))
+                            .0;
+                        self.class_names.insert(
+                            entry.offset().to_debug_info_offset(unit).unwrap().0,
+                            ClassInfo::new(class_name, linkage_name.to_string(), namespace),
+                        );
+                    }
+                }
             }
         }
 
@@ -267,7 +383,13 @@ impl DebugDataReader<'_> {
         unit: &UnitHeader<SliceType>,
         abbrev: &gimli::Abbreviations,
     ) -> Result<Option<(String, usize, u64)>, String> {
-        match get_location_attribute(self, entry, unit.encoding(), &self.units.list.len() - 1) {
+        match get_location_attribute(
+            self,
+            entry,
+            unit.encoding(),
+            &self.units.list.len() - 1,
+            &self.symbol_table,
+        ) {
             Some(address) => {
                 // if debugging information entry A has a DW_AT_specification or DW_AT_abstract_origin attribute
                 // pointing to another debugging information entry B, any attributes of B are considered to be part of A.

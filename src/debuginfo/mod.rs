@@ -79,6 +79,7 @@ pub(crate) struct DebugData {
     pub(crate) demangled_names: HashMap<String, String>,
     pub(crate) unit_names: Vec<Option<String>>,
     pub(crate) sections: HashMap<String, (u64, u64)>,
+    // pub(crate) linkage_names: HashMap<usize, ClassInfo>,
 }
 
 impl DebugData {

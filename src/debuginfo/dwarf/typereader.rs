@@ -31,6 +31,11 @@ impl DebugDataReader<'_> {
         };
         // for each variable
         for (name, var_list) in variables {
+            if name.to_string() == "g_fsmRunnable" {
+                // this is a special variable that contains a list of runnable FSMs
+                // it is not a type, so skip it
+                println!("Found g_fsmRunnable!");
+            }
             for VarInfo { typeref, .. } in var_list {
                 // check if the type was already loaded
                 if !typereader_data.types.contains_key(typeref) {
