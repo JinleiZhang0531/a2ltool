@@ -25,15 +25,22 @@ pub struct ClassInfo {
     name: String,
     linkage_name: String,
     namespace: String,
+    is_declaration: bool, // 是否是声明
 }
 
 impl ClassInfo {
     // Constructor (可选)
-    pub fn new(name: String, linkage_name: String, namespace: String) -> Self {
+    pub fn new(
+        name: String,
+        linkage_name: String,
+        namespace: String,
+        is_declaration: bool,
+    ) -> Self {
         ClassInfo {
             name,
             linkage_name,
             namespace,
+            is_declaration,
         }
     }
 
@@ -50,6 +57,10 @@ impl ClassInfo {
         &self.namespace
     }
 
+    pub fn is_declaration(&self) -> bool {
+        self.is_declaration
+    }
+
     // Setter 方法
     pub fn set_name(&mut self, name: String) {
         self.name = name;
@@ -61,6 +72,10 @@ impl ClassInfo {
 
     pub fn set_namespace(&mut self, namespace: String) {
         self.namespace = namespace;
+    }
+
+    pub fn set_is_declaration(&mut self, is_declaration: bool) {
+        self.is_declaration = is_declaration;
     }
 }
 
@@ -186,7 +201,10 @@ fn get_symbol_table(elffile: &object::read::File) -> Vec<(String, u64)> {
         {
             if let Ok(name) = sym.name() {
                 symbols.push((name.to_string(), sym.address()));
-                println!("Symbol: {}, Address: 0x{:x}", name, sym.address());
+                // println!("Symbol: {}, Address: 0x{:x}", name, sym.address());
+                if name.starts_with("g_") {
+                    println!("Symbol: {}, Address: 0x{:x}", name, sym.address());
+                }
             }
         }
     }
@@ -232,13 +250,15 @@ fn get_endian(elffile: &object::read::File) -> RunTimeEndian {
 impl DebugDataReader<'_> {
     // read the debug information entries in the DWAF data to get all the global variables and their types
     fn read_debug_info_entries(mut self) -> DebugData {
-        let variables = self.load_variables();
+        let mut variables = self.load_variables();
         let (types, typenames) = self.load_types(&variables);
         let varname_list: Vec<&String> = variables.keys().collect();
         let demangled_names = demangle_cpp_varnames(&varname_list);
 
         let mut unit_names = Vec::new();
         std::mem::swap(&mut unit_names, &mut self.unit_names);
+
+        self.update_variable_type_offset(&mut variables);
 
         DebugData {
             variables,
@@ -292,8 +312,8 @@ impl DebugDataReader<'_> {
                     // 打印最后一个元素的值
                     if let Some((tag, opt_string)) = context.last() {
                         match opt_string {
-                            Some(s) => println!("Last DwTag: {:?}, String: {}", tag, s),
-                            None => println!("Last DwTag: {:?}, No String", tag),
+                            Some(s) => {} //println!("Last DwTag: {:?}, String: {}", tag, s),
+                            None => {}
                         }
                     } else {
                         println!("The context is empty.");
@@ -340,34 +360,37 @@ impl DebugDataReader<'_> {
                 if entry.tag() == gimli::constants::DW_TAG_class_type {
                     // if the class has a linkage name, use it, otherwise use the class name
                     let is_declaration = get_declaration_attribute(entry).unwrap_or(false);
-                    if !is_declaration {
-                        let class_name = get_name_attribute(entry, &self.dwarf, unit)
-                            .unwrap_or_else(|_| "unknown_class".to_string());
-                        let linkage_name = String::new();
-                        // 拼接所有 namespace 名称，使用 "::" 作为分隔符
-                        let namespace = context
-                            .iter()
-                            .filter_map(|(tag, name)| {
-                                if *tag == gimli::constants::DW_TAG_namespace {
-                                    name.as_ref()
-                                } else {
-                                    None
-                                }
-                            })
-                            .cloned()
-                            .collect::<Vec<_>>()
-                            .join("::");
-                        // insert the class info into the class_names map
-                        let offset = entry
-                            .offset()
-                            .to_debug_info_offset(unit)
-                            .unwrap_or(gimli::DebugInfoOffset(0))
-                            .0;
-                        self.class_names.insert(
-                            entry.offset().to_debug_info_offset(unit).unwrap().0,
-                            ClassInfo::new(class_name, linkage_name.to_string(), namespace),
-                        );
-                    }
+                    let class_name = get_name_attribute(entry, &self.dwarf, unit)
+                        .unwrap_or_else(|_| "unknown_class".to_string());
+                    let linkage_name = String::new();
+                    // 拼接所有 namespace 名称，使用 "::" 作为分隔符
+                    let namespace = context
+                        .iter()
+                        .filter_map(|(tag, name)| {
+                            if *tag == gimli::constants::DW_TAG_namespace {
+                                name.as_ref()
+                            } else {
+                                None
+                            }
+                        })
+                        .cloned()
+                        .collect::<Vec<_>>()
+                        .join("::");
+                    // insert the class info into the class_names map
+                    let offset = entry
+                        .offset()
+                        .to_debug_info_offset(unit)
+                        .unwrap_or(gimli::DebugInfoOffset(0))
+                        .0;
+                    self.class_names.insert(
+                        entry.offset().to_debug_info_offset(unit).unwrap().0,
+                        ClassInfo::new(
+                            class_name,
+                            linkage_name.to_string(),
+                            namespace,
+                            is_declaration,
+                        ),
+                    );
                 }
             }
         }

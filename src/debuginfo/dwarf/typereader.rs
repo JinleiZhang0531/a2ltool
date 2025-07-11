@@ -31,10 +31,14 @@ impl DebugDataReader<'_> {
         };
         // for each variable
         for (name, var_list) in variables {
-            if name.to_string() == "g_fsmRunnable" {
+            if name.to_string() == "g_FsmRunnable" {
+                //fsm hello g_fsmRunnable  g_FsmRunnable
                 // this is a special variable that contains a list of runnable FSMs
                 // it is not a type, so skip it
-                println!("Found g_fsmRunnable!");
+                println!("Found g_FsmRunnable!");
+            } else {
+                // println!("Loading type info for variable {}", name);
+                // continue;
             }
             for VarInfo { typeref, .. } in var_list {
                 // check if the type was already loaded
@@ -59,6 +63,44 @@ impl DebugDataReader<'_> {
         (typereader_data.types, typereader_data.typenames)
     }
 
+    pub(crate) fn update_variable_type_offset(
+        &mut self,
+        variables: &mut IndexMap<String, Vec<VarInfo>>,
+    ) -> Result<(), String> {
+        // for each variable
+        for (name, var_list) in variables.iter_mut() {
+            if name.to_string() == "g_FsmRunnable" {
+                //fsm hello g_fsmRunnable  g_FsmRunnable
+                // this is a special variable that contains a list of runnable FSMs
+                // it is not a type, so skip it
+                println!("Found g_FsmRunnable!");
+            } else {
+                // println!("Loading type info for variable {}", name);
+                // continue;
+            }
+            for VarInfo {
+                typeref, unit_idx, ..
+            } in var_list.iter_mut()
+            {
+                // check if the type was already loaded
+
+                if let Some(unit_idx_calc) = self.units.get_unit(*typeref) {
+                    // create an entries_tree iterator that makes it possible to read the DIEs of this type
+                    let dbginfo_offset = gimli::DebugInfoOffset(*typeref);
+
+                    // load one type and add it to the collection (always succeeds for correctly structured DWARF debug info)
+                    let mut current_unit = unit_idx_calc;
+                    let mut dbginfo_offset = dbginfo_offset;
+                    self.check_type_offset_address(&mut current_unit, &mut dbginfo_offset)?;
+                    // 更新变量的 typeref 为新的 dbginfo_offset.0
+                    *typeref = dbginfo_offset.0;
+                    *unit_idx = current_unit;
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn get_type(
         &self,
         current_unit: usize,
@@ -66,18 +108,24 @@ impl DebugDataReader<'_> {
         typereader_data: &mut TypeReaderData,
     ) -> Result<TypeInfo, String> {
         let wip_items_orig_len = typereader_data.wip_items.len();
+
+        // Make current_unit and dbginfo_offset mutable so they can be modified by check_type_offset_address
+        let mut current_unit = current_unit;
+        let mut dbginfo_offset = dbginfo_offset;
+        self.check_type_offset_address(&mut current_unit, &mut dbginfo_offset)?;
+
         match self.get_type_wrapped(current_unit, dbginfo_offset, typereader_data) {
             Ok(typeinfo) => Ok(typeinfo),
             Err(errmsg) => {
                 // try to print a readable error message
                 println!("Failed to read type: {errmsg}");
-                for (idx, wip) in typereader_data.wip_items.iter().enumerate() {
-                    print!("  {:indent$}{}", "", wip.tag, indent = idx * 2);
-                    if let Some(name) = &wip.name {
-                        print!(" {name}");
-                    }
-                    println!(" @0x{:X}", wip.offset);
-                }
+                // for (idx, wip) in typereader_data.wip_items.iter().enumerate() {
+                //     print!("  {:indent$}{}", "", wip.tag, indent = idx * 2);
+                //     if let Some(name) = &wip.name {
+                //         print!(" {name}");
+                //     }
+                //     println!(" @0x{:X}", wip.offset);
+                // }
 
                 // create a dummy typeinfo using DwarfDataType::Other, rather than propagate the error
                 // this allows the caller to continue, which is more useful
@@ -98,6 +146,55 @@ impl DebugDataReader<'_> {
                 Ok(replacement_type)
             }
         }
+    }
+
+    fn check_type_offset_address(
+        &self,
+        current_unit: &mut usize,
+        dbginfo_offset: &mut DebugInfoOffset,
+    ) -> Result<(), String> {
+        let (unit, abbrev) = &self.units[*current_unit];
+        let offset = dbginfo_offset.to_unit_offset(unit).unwrap();
+        let mut entries_tree = unit
+            .entries_tree(abbrev, Some(offset))
+            .map_err(|err| err.to_string())?;
+        let entries_tree_node = entries_tree.root().map_err(|err| err.to_string())?;
+        let entry = entries_tree_node.entry();
+        let _typename = get_name_attribute(entry, &self.dwarf, unit).ok();
+        let is_declaration = get_declaration_attribute(entry).unwrap_or(false);
+
+        if is_declaration {
+            if let Some(class_info) = self.class_names.get(&dbginfo_offset.0) {
+                for (addr, class_info_tmp) in self.class_names.iter() {
+                    if class_info_tmp.name == class_info.name
+                        && !class_info_tmp.is_declaration
+                        && class_info_tmp.namespace == class_info.namespace
+                    {
+                        // dbginfo_offset is an immutable reference parameter, cannot assign to it
+                        // If you want to use the new addr, you need to return it or handle it differently
+                        *dbginfo_offset = gimli::DebugInfoOffset(*addr); // <-- Fixed type
+                        if let Some(unit_idx) = self.units.get_unit(*addr) {
+                            // Handle the case where we found a unit index
+                            *current_unit = unit_idx;
+                        } else {
+                            return Err(format!(
+                                "No matching address found for class name: {}",
+                                class_info.name
+                            ));
+                        }
+                        return Ok(());
+                    }
+                }
+            } else {
+                // If the type is not a declaration, it should have a valid address
+                // If the address is 0, it means the type is not defined
+                return Err(format!(
+                    "Type at offset 0x{:X} in unit {} is not defined",
+                    dbginfo_offset.0, current_unit
+                ));
+            }
+        }
+        Ok(())
     }
 
     // get one type from the debug info
@@ -125,6 +222,25 @@ impl DebugDataReader<'_> {
             // This is a declaration, not a definition. This happens when a type is declared but not defined
             // e.g. "struct foo;" in a header file.
             // We can't do anything with this - return a dummy type, and don't store it in the types map.
+            return Ok(TypeInfo {
+                datatype: DbgDataType::Other(0),
+                name: typename,
+                unit_idx: current_unit,
+                dbginfo_offset: dbginfo_offset.0,
+            });
+        }
+
+        // 检查是否已经在处理中，防止递归无限调用
+        if typereader_data
+            .wip_items
+            .iter()
+            .any(|item| item.offset == dbginfo_offset.0)
+        {
+            // return Err(format!(
+            //     "Recursive type detected at offset 0x{:X}, tag {:?}",
+            //     dbginfo_offset.0,
+            //     entry.tag()
+            // ));
             return Ok(TypeInfo {
                 datatype: DbgDataType::Other(0),
                 name: typename,
@@ -290,7 +406,7 @@ impl DebugDataReader<'_> {
                     .insert(name, vec![dbginfo_offset.0]);
             }
         }
-        typereader_data.wip_items.pop();
+        // typereader_data.wip_items.pop();
 
         // store the type for access-by-offset
         typereader_data

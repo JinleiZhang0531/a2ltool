@@ -8,12 +8,12 @@
             "cwd": "${workspaceRoot}/target/debug",
             "program": "${workspaceRoot}/target/debug/a2ltool",
             "args": [
-                "./hello_fsm_v4.a2l",
+                "./ifc2p_x86.a2l",
                 "--elffile",
-                "./hello_fsm_v4.elf",
+                "./ifc2p_imo_sil",
                 "--update",
                 "--output",
-                "./hello_fsm_v4_output.a2l"
+                "./ifc2p_x86_output.a2l"
             ],
         }
     ]

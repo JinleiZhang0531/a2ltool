@@ -26,6 +26,10 @@ pub(crate) fn update_all_module_measurements(
     let mut results = Vec::new();
 
     std::mem::swap(&mut data.module.measurement, &mut measurement_list);
+    // Print out the contents of measurement_list for debugging
+    for m in &measurement_list {
+        println!("{:?}", m);
+    }
     for mut measurement in measurement_list {
         let update_result =
             update_module_measurement(&mut measurement, info, data, &mut enum_convlist);
