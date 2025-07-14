@@ -163,6 +163,12 @@ impl DebugDataReader<'_> {
         let _typename = get_name_attribute(entry, &self.dwarf, unit).ok();
         let is_declaration = get_declaration_attribute(entry).unwrap_or(false);
 
+        if let Some(ref name) = _typename {
+            if name == "CCalcFuncStaMach" {
+                println!("Found type: {:?}", name);
+            }
+        }
+
         if is_declaration {
             if let Some(class_info) = self.class_names.get(&dbginfo_offset.0) {
                 for (addr, class_info_tmp) in self.class_names.iter() {
@@ -206,6 +212,12 @@ impl DebugDataReader<'_> {
     ) -> Result<TypeInfo, String> {
         if let Some(t) = typereader_data.types.get(&dbginfo_offset.0) {
             return Ok(t.clone());
+        }
+
+        if dbginfo_offset.0 == 11399367 {
+            // this is a special case where the type is a pointer to a struct that is defined later
+            // this is used in the C code for the FSMs
+            println!("Found type: {:?}", dbginfo_offset);
         }
 
         let (unit, abbrev) = &self.units[current_unit];
@@ -292,7 +304,8 @@ impl DebugDataReader<'_> {
                         (
                             DbgDataType::Pointer(
                                 u64::from(unit.encoding().address_size),
-                                ptype_offset.0,
+                                // ptype_offset.0,
+                                pt_type.dbginfo_offset,
                             ),
                             pt_type.name,
                         )
@@ -384,6 +397,13 @@ impl DebugDataReader<'_> {
                 ));
             }
         };
+
+        if dbginfo_offset.0 == 11399367 {
+            // this is a special case where the type is a pointer to a struct that is defined later
+            // this is used in the C code for the FSMs
+            println!("Found type: {:?}, offset: {:?}", inner_name, dbginfo_offset);
+            println!("type: {:?}", datatype);
+        }
 
         // use the inner name as a display name for the type if the type has no name of its own
         let display_name = typename.clone().or(inner_name);
@@ -643,6 +663,7 @@ impl DebugDataReader<'_> {
                                 name: membertype.name.clone(),
                                 unit_idx: membertype.unit_idx,
                                 dbginfo_offset,
+                                // membertype.dbginfo_offset,
                                 datatype: DbgDataType::Bitfield {
                                     basetype: Box::new(membertype),
                                     bit_size: bit_size as u16,
@@ -691,7 +712,8 @@ impl DebugDataReader<'_> {
                                 || matches!(membertype.datatype, DbgDataType::Class { .. })
                             {
                                 membertype.datatype = DbgDataType::TypeRef(
-                                    new_dbginfo_offset.0,
+                                    // new_dbginfo_offset.0,
+                                    membertype.dbginfo_offset,
                                     membertype.get_size(),
                                 );
                             }

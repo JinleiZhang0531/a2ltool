@@ -25,7 +25,6 @@ pub(crate) fn get_name_attribute(
     match name_attr {
         gimli::AttributeValue::String(slice) => {
             if let Ok(utf8string) = slice.to_string() {
-                // could not demangle, but successfully converted the slice to utf8
                 return Ok(utf8string.to_owned());
             }
             Err(format!("could not decode {slice:#?} as a utf-8 string"))
@@ -34,7 +33,6 @@ pub(crate) fn get_name_attribute(
             match dwarf.debug_str.get_str(str_offset) {
                 Ok(slice) => {
                     if let Ok(utf8string) = slice.to_string() {
-                        // could not demangle, but successfully converted the slice to utf8
                         return Ok(utf8string.to_owned());
                     }
                     Err(format!("could not decode {slice:#?} as a utf-8 string"))
@@ -51,7 +49,6 @@ pub(crate) fn get_name_attribute(
             match dwarf.debug_str.get_str(offset) {
                 Ok(slice) => {
                     if let Ok(utf8string) = slice.to_string() {
-                        // could not demangle, but successfully converted the slice to utf8
                         return Ok(utf8string.to_owned());
                     }
                     Err(format!("could not decode {slice:#?} as a utf-8 string"))

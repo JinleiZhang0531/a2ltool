@@ -205,6 +205,7 @@ fn find_membertype<'a>(
     if component_index >= components.len() {
         Ok((address, typeinfo))
     } else {
+        println!("typeinfo.datatype: {:?}", &typeinfo.datatype);
         match &typeinfo.datatype {
             DbgDataType::Class {
                 members,
@@ -298,6 +299,7 @@ fn find_membertype<'a>(
                     Ok((address, typeinfo))
                 } else {
                     // could not descend further to match additional symbol name components
+
                     Err(format!(
                         "Remaining portion \"{}\" of \"{}\" could not be matched",
                         components[component_index..].join("."),
