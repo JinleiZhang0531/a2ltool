@@ -169,6 +169,14 @@ impl DebugDataReader<'_> {
             }
         }
 
+        // Debug: Print special type offsets for investigation
+        match dbginfo_offset.0 {
+            0xa316a1 | 0x9f888b | 0x936de5 | 0x3f7a79 | 0xab967a => {
+                println!("Found special type: {:?}", dbginfo_offset);
+            }
+            _ => {}
+        }
+
         if is_declaration {
             if let Some(class_info) = self.class_names.get(&dbginfo_offset.0) {
                 for (addr, class_info_tmp) in self.class_names.iter() {
@@ -210,11 +218,12 @@ impl DebugDataReader<'_> {
         dbginfo_offset: DebugInfoOffset,
         typereader_data: &mut TypeReaderData,
     ) -> Result<TypeInfo, String> {
+        let mut dbginfo_offset = dbginfo_offset;
         if let Some(t) = typereader_data.types.get(&dbginfo_offset.0) {
             return Ok(t.clone());
         }
 
-        if dbginfo_offset.0 == 11399367 {
+        if dbginfo_offset.0 == 290040 {
             // this is a special case where the type is a pointer to a struct that is defined later
             // this is used in the C code for the FSMs
             println!("Found type: {:?}", dbginfo_offset);
@@ -261,13 +270,8 @@ impl DebugDataReader<'_> {
             });
         }
 
-        // track in-progress items to prevent infinite recursion
-        typereader_data.wip_items.push(WipItemInfo::new(
-            dbginfo_offset.0,
-            typename.clone(),
-            entry.tag(),
-        ));
-
+        let mut dbginfo_offset_new = dbginfo_offset.0;
+        let tag_info = entry.tag();
         let (datatype, inner_name) = match entry.tag() {
             gimli::constants::DW_TAG_base_type => {
                 let (datatype, name) = get_base_type(entry, &self.units[current_unit].0);
@@ -301,6 +305,7 @@ impl DebugDataReader<'_> {
                         )
                     } else {
                         let pt_type = self.get_type(new_cur_unit, ptype_offset, typereader_data)?;
+                        dbginfo_offset_new = pt_type.dbginfo_offset;
                         (
                             DbgDataType::Pointer(
                                 u64::from(unit.encoding().address_size),
@@ -354,6 +359,7 @@ impl DebugDataReader<'_> {
                 let (new_cur_unit, dbginfo_offset) =
                     get_type_attribute(entry, &self.units, current_unit)?;
                 let reftype = self.get_type(new_cur_unit, dbginfo_offset, typereader_data)?;
+                dbginfo_offset_new = reftype.dbginfo_offset;
                 (reftype.datatype, None)
             }
             gimli::constants::DW_TAG_const_type
@@ -368,6 +374,7 @@ impl DebugDataReader<'_> {
                     get_type_attribute(entry, &self.units, current_unit)
                 {
                     let typeinfo = self.get_type(new_cur_unit, dbginfo_offset, typereader_data)?;
+                    dbginfo_offset_new = typeinfo.dbginfo_offset;
                     (typeinfo.datatype, typeinfo.name)
                 } else {
                     // const void* / volatile void* / packed void*???
@@ -398,12 +405,23 @@ impl DebugDataReader<'_> {
             }
         };
 
-        if dbginfo_offset.0 == 11399367 {
+        if dbginfo_offset.0 != dbginfo_offset_new {
             // this is a special case where the type is a pointer to a struct that is defined later
             // this is used in the C code for the FSMs
-            println!("Found type: {:?}, offset: {:?}", inner_name, dbginfo_offset);
-            println!("type: {:?}", datatype);
+            println!(
+                "Found type: {:?}, offset: {:?}, new offset: {:?}",
+                inner_name, dbginfo_offset, dbginfo_offset_new
+            );
+            println!("type tag: {:?}", tag_info.to_string());
+            dbginfo_offset = DebugInfoOffset(dbginfo_offset_new);
         }
+
+        // track in-progress items to prevent infinite recursion
+        typereader_data.wip_items.push(WipItemInfo::new(
+            dbginfo_offset.0,
+            typename.clone(),
+            tag_info,
+        ));
 
         // use the inner name as a display name for the type if the type has no name of its own
         let display_name = typename.clone().or(inner_name);
@@ -429,6 +447,9 @@ impl DebugDataReader<'_> {
         // typereader_data.wip_items.pop();
 
         // store the type for access-by-offset
+        if typereader_data.types.contains_key(&dbginfo_offset.0) {
+            return Ok(typereader_data.types[&dbginfo_offset.0].clone());
+        }
         typereader_data
             .types
             .insert(dbginfo_offset.0, typeinfo.clone());
@@ -647,6 +668,9 @@ impl DebugDataReader<'_> {
                 .unwrap_or(0);
                 let (new_cur_unit, new_dbginfo_offset) =
                     get_type_attribute(child_entry, &self.units, current_unit)?;
+                if new_dbginfo_offset.0 == 14133146 {
+                    println!("Found type: {:?}", new_dbginfo_offset);
+                }
                 if let Ok(mut membertype) =
                     self.get_type(new_cur_unit, new_dbginfo_offset, typereader_data)
                 {
