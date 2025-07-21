@@ -153,6 +153,14 @@ impl DebugDataReader<'_> {
         current_unit: &mut usize,
         dbginfo_offset: &mut DebugInfoOffset,
     ) -> Result<(), String> {
+        // Debug: Print special type offsets for investigation
+        match dbginfo_offset.0 {
+            0xa316a1 | 0x9f888b | 0x936de5 | 0x3f7a79 | 0xab967a | 0x4FF174 => {
+                println!("Found special type: {:?}", dbginfo_offset);
+            }
+            _ => {}
+        }
+
         let (unit, abbrev) = &self.units[*current_unit];
         let offset = dbginfo_offset.to_unit_offset(unit).unwrap();
         let mut entries_tree = unit
@@ -167,14 +175,6 @@ impl DebugDataReader<'_> {
             if name == "CCalcFuncStaMach" {
                 println!("Found type: {:?}", name);
             }
-        }
-
-        // Debug: Print special type offsets for investigation
-        match dbginfo_offset.0 {
-            0xa316a1 | 0x9f888b | 0x936de5 | 0x3f7a79 | 0xab967a => {
-                println!("Found special type: {:?}", dbginfo_offset);
-            }
-            _ => {}
         }
 
         if is_declaration {
@@ -218,7 +218,9 @@ impl DebugDataReader<'_> {
         dbginfo_offset: DebugInfoOffset,
         typereader_data: &mut TypeReaderData,
     ) -> Result<TypeInfo, String> {
+        let offset_addr_old = dbginfo_offset.0;
         let mut dbginfo_offset = dbginfo_offset;
+
         if let Some(t) = typereader_data.types.get(&dbginfo_offset.0) {
             return Ok(t.clone());
         }
@@ -270,6 +272,13 @@ impl DebugDataReader<'_> {
             });
         }
 
+        // track in-progress items to prevent infinite recursion
+        typereader_data.wip_items.push(WipItemInfo::new(
+            dbginfo_offset.0,
+            typename.clone(),
+            entry.tag(),
+        ));
+
         let mut dbginfo_offset_new = dbginfo_offset.0;
         let tag_info = entry.tag();
         let (datatype, inner_name) = match entry.tag() {
@@ -277,8 +286,8 @@ impl DebugDataReader<'_> {
                 let (datatype, name) = get_base_type(entry, &self.units[current_unit].0);
                 (datatype, Some(name))
             }
-            gimli::constants::DW_TAG_pointer_type
-            | gimli::constants::DW_TAG_reference_type
+            // gimli::constants::DW_TAG_pointer_type
+            gimli::constants::DW_TAG_reference_type
             | gimli::constants::DW_TAG_rvalue_reference_type => {
                 let (unit, _) = &self.units[current_unit];
                 if let Ok((new_cur_unit, ptype_offset)) =
@@ -391,7 +400,7 @@ impl DebugDataReader<'_> {
                     Some("p_function".to_string()),
                 )
             }
-            gimli::constants::DW_TAG_unspecified_type => {
+            gimli::constants::DW_TAG_pointer_type | gimli::constants::DW_TAG_unspecified_type => {
                 // ?
                 (
                     DbgDataType::Other(get_byte_size_attribute(entry).unwrap_or(0)),
@@ -405,6 +414,8 @@ impl DebugDataReader<'_> {
             }
         };
 
+        let mut diff_flag = false;
+
         if dbginfo_offset.0 != dbginfo_offset_new {
             // this is a special case where the type is a pointer to a struct that is defined later
             // this is used in the C code for the FSMs
@@ -414,14 +425,15 @@ impl DebugDataReader<'_> {
             );
             println!("type tag: {:?}", tag_info.to_string());
             dbginfo_offset = DebugInfoOffset(dbginfo_offset_new);
+            diff_flag = true;
         }
 
-        // track in-progress items to prevent infinite recursion
-        typereader_data.wip_items.push(WipItemInfo::new(
-            dbginfo_offset.0,
-            typename.clone(),
-            tag_info,
-        ));
+        // // track in-progress items to prevent infinite recursion
+        // typereader_data.wip_items.push(WipItemInfo::new(
+        //     dbginfo_offset.0,
+        //     typename.clone(),
+        //     tag_info,
+        // ));
 
         // use the inner name as a display name for the type if the type has no name of its own
         let display_name = typename.clone().or(inner_name);
@@ -445,6 +457,14 @@ impl DebugDataReader<'_> {
             }
         }
         // typereader_data.wip_items.pop();
+
+        if diff_flag {
+            // if the offset changed, we need to update the dbginfo_offset in the typeinfo
+            // this is needed for the caller to be able to access the type by offset
+            typereader_data
+                .types
+                .insert(offset_addr_old, typeinfo.clone());
+        }
 
         // store the type for access-by-offset
         if typereader_data.types.contains_key(&dbginfo_offset.0) {
