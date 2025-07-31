@@ -218,6 +218,21 @@ fn core(args: impl Iterator<Item = OsString>) -> Result<(), String> {
         }
     }
 
+    if let Some(debugdata) = &debuginfo {
+        // if debugprint is enabled, print the debug data
+        println!(
+            "================\n{:?}\n================",
+            "traverse_symbol_components start".to_string()
+        );
+
+        symbol::traverse_symbol_components(&debugdata);
+
+        println!(
+            "================\n{:?}\n================",
+            "traverse_symbol_components end".to_string()
+        );
+    }
+
     // merge at the module level
     if let Some(merge_modules) = arg_matches.get_many::<OsString>("MERGEMODULE") {
         for merge_module_path in merge_modules {

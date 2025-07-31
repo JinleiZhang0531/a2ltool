@@ -12,8 +12,8 @@ type SliceType<'a> = EndianSlice<'a, RunTimeEndian>;
 
 mod attributes;
 use attributes::{
-    get_abstract_origin_attribute, get_declaration_attribute, get_linkage_name_attribute,
-    get_location_attribute, get_name_attribute, get_specification_attribute, get_typeref_attribute,
+    get_abstract_origin_attribute, get_declaration_attribute, get_location_attribute,
+    get_name_attribute, get_specification_attribute, get_typeref_attribute,
 };
 mod typereader;
 
@@ -290,8 +290,8 @@ impl DebugDataReader<'_> {
                 if entry.tag() == gimli::constants::DW_TAG_compile_unit
                     || entry.tag() == gimli::constants::DW_TAG_partial_unit
                 {
-                    self.unit_names
-                        .push(get_name_attribute(entry, &self.dwarf, unit).ok());
+                    let cu_name = get_name_attribute(entry, &self.dwarf, unit).ok();
+                    self.unit_names.push(cu_name);
                 }
             }
 
@@ -383,7 +383,7 @@ impl DebugDataReader<'_> {
                         .unwrap_or(gimli::DebugInfoOffset(0))
                         .0;
                     self.class_names.insert(
-                        entry.offset().to_debug_info_offset(unit).unwrap().0,
+                        offset,
                         ClassInfo::new(
                             class_name,
                             linkage_name.to_string(),

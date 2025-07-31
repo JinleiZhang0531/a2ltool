@@ -31,11 +31,11 @@ impl DebugDataReader<'_> {
         };
         // for each variable
         for (name, var_list) in variables {
-            if name.to_string() == "g_FsmRunnable" {
-                //fsm hello g_fsmRunnable  g_FsmRunnable
+            if name.to_string() == "g_lksStateStruct" {
+                //fsm hello g_fsmRunnable  g_FsmRunnable g_lksStateStruct
                 // this is a special variable that contains a list of runnable FSMs
                 // it is not a type, so skip it
-                println!("Found g_FsmRunnable!");
+                println!("Found g_lksStateStruct!");
             } else {
                 // println!("Loading type info for variable {}", name);
                 // continue;
@@ -225,7 +225,7 @@ impl DebugDataReader<'_> {
             return Ok(t.clone());
         }
 
-        if dbginfo_offset.0 == 290040 {
+        if dbginfo_offset.0 == 153913 {
             // this is a special case where the type is a pointer to a struct that is defined later
             // this is used in the C code for the FSMs
             println!("Found type: {:?}", dbginfo_offset);
@@ -648,10 +648,10 @@ impl DebugDataReader<'_> {
             } = &baseclass_type.datatype
             {
                 for (name, (m_type, m_offset)) in baseclass_members {
-                    members.insert(
-                        name.to_owned(),
-                        (m_type.clone(), m_offset + baseclass_offset),
-                    );
+                    // members.insert(
+                    //     name.to_owned(),
+                    //     (m_type.clone(), m_offset + baseclass_offset),
+                    // );
                 }
             }
         }

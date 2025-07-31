@@ -1,3 +1,6 @@
+use clap::builder::Str;
+use object::read::pe::PeRelocationIterator;
+
 use crate::debuginfo::iter::TypeInfoIter;
 use crate::debuginfo::{DbgDataType, VarInfo};
 use crate::debuginfo::{DebugData, TypeInfo, make_simple_unit_name};
@@ -57,6 +60,33 @@ pub(crate) fn find_symbol<'a>(
             }
 
             Err(find_err)
+        }
+    }
+}
+
+pub(crate) fn traverse_symbol_components<'a>(debug_data: &'a DebugData) {
+    // Traverse the symbol components and find the corresponding symbol information
+    for (varname, varinfo_list) in debug_data.variables.iter() {
+        if varname == "g_binFile" || varname.starts_with("g_") {
+            for varinfo in varinfo_list {
+                if let Some(vartype) = debug_data.types.get(&varinfo.typeref) {
+                    // Here you can traverse the type information and find the members, arrays, etc.
+                    // This is a placeholder for further processing
+                    // println!(
+                    //     "Found variable: {} at address: {} with type: {:?}",
+                    //     varname, varinfo.address, vartype.datatype
+                    // );
+                    let mut member_name = String::new();
+                    member_name.push_str(&varname);
+                    // Traverse the type information to find members or arrays
+                    traverse_membertype(vartype, debug_data, varinfo.address, &mut member_name);
+                } else {
+                    println!(
+                        "Type reference {} not found for variable {}",
+                        varinfo.typeref, varname
+                    );
+                }
+            }
         }
     }
 }
@@ -307,6 +337,96 @@ fn find_membertype<'a>(
                     ))
                 }
             }
+        }
+    }
+}
+
+// traverse the address and type of the current component of a symbol name
+fn traverse_membertype<'a>(
+    typeinfo: &'a TypeInfo,
+    debug_data: &'a DebugData,
+    address: u64,
+    member_name: &String,
+) {
+    // println!("typeinfo.datatype: {:?}", &typeinfo.datatype);
+    match &typeinfo.datatype {
+        DbgDataType::Class {
+            members,
+            inheritance,
+            ..
+        } => {
+            for (name, (membertype, offset)) in members.iter() {
+                // println!(
+                //     "Member name: {}, Type: {:?}, Offset: {}",
+                //     name, membertype.datatype, offset
+                // );
+
+                let mut member_name_info = member_name.clone(); // 克隆 member_name
+                member_name_info.push_str(&format!(".{}", name));
+
+                let membertype_info = membertype.get_reference(&debug_data.types);
+                // println!(
+                //     "Traversing member: {} at offset: {}",
+                //     membertype.name.as_deref().unwrap_or("_unnamed_"),
+                //     offset
+                // );
+                let address = address + offset;
+                traverse_membertype(membertype_info, debug_data, address, &member_name_info);
+            }
+
+            for (baseclass_name, (baseclass_type, offset)) in inheritance.iter() {
+                // println!("Base class: {} at offset: {}", baseclass_name, offset);
+                let mut member_name_info = member_name.clone();
+                member_name_info.push_str(&format!(".{}._", baseclass_name));
+                let address = address + offset;
+                traverse_membertype(baseclass_type, debug_data, address, &member_name_info);
+            }
+        }
+        DbgDataType::Struct { members, .. } | DbgDataType::Union { members, .. } => {
+            for (name, (membertype, offset)) in members.iter() {
+                // println!(
+                //     "Member name: {}, Type: {:?}, Offset: {}",
+                //     name, membertype.datatype, offset
+                // );
+
+                let mut member_name_info = member_name.clone(); // 克隆 member_name
+                member_name_info.push_str(&format!(".{}", name));
+
+                let membertype_info = membertype.get_reference(&debug_data.types);
+                // println!(
+                //     "Traversing member: {} at offset: {}",
+                //     membertype.name.as_deref().unwrap_or("_unnamed_"),
+                //     offset
+                // );
+                let address = address + offset;
+                traverse_membertype(membertype_info, debug_data, address, &member_name_info);
+            }
+        }
+        DbgDataType::Array {
+            dim,
+            stride,
+            arraytype,
+            ..
+        } => {
+            // let mut multi_index = 0;
+            for (idx_pos, current_dim) in dim.iter().enumerate() {
+                for index in idx_pos..*current_dim as usize {
+                    let elementaddr = address + (index as u64 * stride);
+                    let mut member_name_info = member_name.clone();
+                    member_name_info.push_str(&format!("._{}_", index));
+
+                    traverse_membertype(arraytype, debug_data, elementaddr, &member_name_info);
+                }
+            }
+        }
+        _ => {
+            println!(
+                "member name: {} address: {:#x} ,typename: {:?} , Reached type: {:?} ",
+                member_name,
+                address,
+                typeinfo.name.as_deref().unwrap_or("_unnamed_"),
+                typeinfo.datatype,
+            );
         }
     }
 }
