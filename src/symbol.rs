@@ -458,11 +458,11 @@ fn traverse_membertype<'a>(
             let mut file = LOG_FILE.lock().unwrap();
             if let Err(e) = writeln!(
                 file,
-                "member name: {} address: {:#x} ,typename: {:?} , Reached type: {:?} ",
+                "member name: {} address: {:#x} ,typename: {:?}  ",
                 member_name,
                 address,
                 typeinfo.name.as_deref().unwrap_or("_unnamed_"),
-                typeinfo.datatype
+                // typeinfo.datatype
             ) {
                 eprintln!("Failed to write to log file: {}", e);
             }

@@ -156,7 +156,7 @@ impl DebugDataReader<'_> {
         // Debug: Print special type offsets for investigation
         match dbginfo_offset.0 {
             0xa316a1 | 0x9f888b | 0x936de5 | 0x3f7a79 | 0xab967a | 0x4FF174 => {
-                println!("Found special type: {:?}", dbginfo_offset);
+                // println!("Found special type: {:?}", dbginfo_offset);
             }
             _ => {}
         }
@@ -173,7 +173,7 @@ impl DebugDataReader<'_> {
 
         if let Some(ref name) = _typename {
             if name == "CCalcFuncStaMach" {
-                println!("Found type: {:?}", name);
+                // println!("Found type: {:?}", name);
             }
         }
 
@@ -228,7 +228,7 @@ impl DebugDataReader<'_> {
         if dbginfo_offset.0 == 153913 {
             // this is a special case where the type is a pointer to a struct that is defined later
             // this is used in the C code for the FSMs
-            println!("Found type: {:?}", dbginfo_offset);
+            // println!("Found type: {:?}", dbginfo_offset);
         }
 
         let (unit, abbrev) = &self.units[current_unit];
@@ -689,7 +689,7 @@ impl DebugDataReader<'_> {
                 let (new_cur_unit, new_dbginfo_offset) =
                     get_type_attribute(child_entry, &self.units, current_unit)?;
                 if new_dbginfo_offset.0 == 14133146 {
-                    println!("Found type: {:?}", new_dbginfo_offset);
+                    // println!("Found type: {:?}", new_dbginfo_offset);
                 }
                 if let Ok(mut membertype) =
                     self.get_type(new_cur_unit, new_dbginfo_offset, typereader_data)

@@ -8,18 +8,27 @@
             "cwd": "${workspaceRoot}/target/debug",
             "program": "${workspaceRoot}/target/debug/a2ltool",
             "args": [
+                //#1
                 "./hello_fsm_v4.a2l",
                 "--elffile",
                 "./hello_fsm_v4.elf",
                 "--update",
                 "--output",
                 "./hello_fsm_v4_output.a2l"
+                //#2
                 // "./ifc2p_x86.a2l",
                 // "--elffile",
                 // "./ifc2p_imo_sil",
                 // "--update",
                 // "--output",
                 // "./ifc2p_x86_output.a2l"
+                //#3
+                // "./idc_input.a2l",
+                // "--elffile",
+                // "./idc_ipilotrd.elf",
+                // "--update",
+                // "--output",
+                // "./idc_output.a2l"
             ],
         }
     ]
