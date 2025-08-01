@@ -28,7 +28,7 @@ pub(crate) fn update_all_module_measurements(
     std::mem::swap(&mut data.module.measurement, &mut measurement_list);
     // Print out the contents of measurement_list for debugging
     for m in &measurement_list {
-        println!("{:?}", m);
+        // println!("{:?}", m);
     }
     for mut measurement in measurement_list {
         let update_result =

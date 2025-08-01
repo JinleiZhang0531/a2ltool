@@ -4,6 +4,10 @@ use object::read::pe::PeRelocationIterator;
 use crate::debuginfo::iter::TypeInfoIter;
 use crate::debuginfo::{DbgDataType, VarInfo};
 use crate::debuginfo::{DebugData, TypeInfo, make_simple_unit_name};
+use lazy_static::lazy_static;
+use std::fs::OpenOptions;
+use std::io::Write;
+use std::sync::Mutex;
 
 #[derive(Clone)]
 pub(crate) struct SymbolInfo<'dbg> {
@@ -20,6 +24,21 @@ struct AdditionalSpec {
     function_name: Option<String>,
     simple_unit_name: Option<String>,
     namespaces: Vec<String>,
+}
+
+// 定义全局日志文件句柄
+lazy_static! {
+    pub static ref LOG_FILE: Mutex<std::fs::File> = Mutex::new(
+        {
+            // 创建或打开文件，并在打开时清空内容
+            OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open("symbol_traverse.log")
+                .expect("Failed to open log file")
+        }
+    );
 }
 
 // find a symbol in the elf_info data structure that was derived from the DWARF debug info in the elf file
@@ -65,6 +84,8 @@ pub(crate) fn find_symbol<'a>(
 }
 
 pub(crate) fn traverse_symbol_components<'a>(debug_data: &'a DebugData) {
+    // Open the log file for appending
+
     // Traverse the symbol components and find the corresponding symbol information
     for (varname, varinfo_list) in debug_data.variables.iter() {
         if varname == "g_binFile" || varname.starts_with("g_") {
@@ -88,6 +109,13 @@ pub(crate) fn traverse_symbol_components<'a>(debug_data: &'a DebugData) {
                 }
             }
         }
+    }
+
+    {
+        // 主动关闭全局日志文件
+        let _ = LOG_FILE.lock().map(|mut file| file.flush());
+        // 注意：lazy_static 定义的 LOG_FILE 不能真正“关闭”文件句柄，只能 flush。
+        // 文件句柄会在程序退出时自动关闭。
     }
 }
 
@@ -235,7 +263,7 @@ fn find_membertype<'a>(
     if component_index >= components.len() {
         Ok((address, typeinfo))
     } else {
-        println!("typeinfo.datatype: {:?}", &typeinfo.datatype);
+        // println!("typeinfo.datatype: {:?}", &typeinfo.datatype);
         match &typeinfo.datatype {
             DbgDataType::Class {
                 members,
@@ -420,13 +448,24 @@ fn traverse_membertype<'a>(
             }
         }
         _ => {
-            println!(
+            // println!(
+            //     "member name: {} address: {:#x} ,typename: {:?} , Reached type: {:?} ",
+            //     member_name,
+            //     address,
+            //     typeinfo.name.as_deref().unwrap_or("_unnamed_"),
+            //     typeinfo.datatype,
+            // );
+            let mut file = LOG_FILE.lock().unwrap();
+            if let Err(e) = writeln!(
+                file,
                 "member name: {} address: {:#x} ,typename: {:?} , Reached type: {:?} ",
                 member_name,
                 address,
                 typeinfo.name.as_deref().unwrap_or("_unnamed_"),
-                typeinfo.datatype,
-            );
+                typeinfo.datatype
+            ) {
+                eprintln!("Failed to write to log file: {}", e);
+            }
         }
     }
 }

@@ -419,11 +419,11 @@ impl DebugDataReader<'_> {
         if dbginfo_offset.0 != dbginfo_offset_new {
             // this is a special case where the type is a pointer to a struct that is defined later
             // this is used in the C code for the FSMs
-            println!(
-                "Found type: {:?}, offset: {:?}, new offset: {:?}",
-                inner_name, dbginfo_offset, dbginfo_offset_new
-            );
-            println!("type tag: {:?}", tag_info.to_string());
+            // println!(
+            //     "Found type: {:?}, offset: {:?}, new offset: {:?}",
+            //     inner_name, dbginfo_offset, dbginfo_offset_new
+            // );
+            // println!("type tag: {:?}", tag_info.to_string());
             dbginfo_offset = DebugInfoOffset(dbginfo_offset_new);
             diff_flag = true;
         }
